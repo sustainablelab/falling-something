@@ -197,7 +197,7 @@ enum particle_type
 };
 
 #define SAND_COLOR 0xFFBB00FF
-#define WATER_COLOR 0x0000FFFF
+#define WATER_COLOR 0x0088FFFF
 #define BRICK_COLOR 0xFF0000FF
 
 static const u32 colors[NTYPES] = {
@@ -306,10 +306,12 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
     {
         for (int col=0; col < SCREEN_WIDTH; col++)
         {
-            u32 color = ColorAt(row, col, screen_pixels_prev);
-            u32 color_below = ColorAt(row+1, col, screen_pixels_prev);
+            u32 color             = ColorAt(row,   col,   screen_pixels_prev);
+            u32 color_below       = ColorAt(row+1, col,   screen_pixels_prev);
             u32 color_below_right = ColorAt(row+1, col+1, screen_pixels_prev);
-            u32 color_below_left = ColorAt(row+1, col-1, screen_pixels_prev);
+            u32 color_below_left  = ColorAt(row+1, col-1, screen_pixels_prev);
+            u32 color_right       = ColorAt(row,   col+1, screen_pixels_prev);
+            u32 color_left        = ColorAt(row,   col-1, screen_pixels_prev);
             int dy=0; // dy is 0, +1 or -1
             int dx=0; // dx is 0, +1 or -1
             switch (color)
@@ -355,11 +357,63 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                             dx = 1;
                             dy = 1;
                         }
+                        // If something on both sides, don't fall.
+                        if (
+                               (color_below_right != NOTHING_COLOR)
+                            && (color_below_left  != NOTHING_COLOR)
+                           )
+                        {
+                            dx = 0;
+                            dy = 0;
+                        }
                     }
                     ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
                     break;
                 case WATER_COLOR:
-                    ColorSetUnsafe(row, col, color, screen_pixels_next);
+                    // Fall down if nothing is below.
+                    if (color_below == NOTHING_COLOR)
+                    {
+                        dx = 1;
+                        dy = 0;
+                    }
+                    // Stop falling if ANYTHING is below.
+                    else
+                    {
+                        dx = 0;
+                        // If nothing on either side, pick a side at RANDOM:
+                        if (
+                                (color_right == NOTHING_COLOR)
+                             && (color_left  == NOTHING_COLOR)
+                           )
+                        {
+                            dy = (rand()%2 == 1) ? 1 : -1;
+                        }
+                        // If nothing on left only, flow left:
+                        if (
+                               (color_right != NOTHING_COLOR)
+                            && (color_left  == NOTHING_COLOR)
+                           )
+                        {
+                            dy = -1;
+                        }
+                        // If nothing on right only, flow right:
+                        if (
+                               (color_right == NOTHING_COLOR)
+                            && (color_left  != NOTHING_COLOR)
+                           )
+                        {
+                            dy = 1;
+                        }
+                        // If something on both sides, don't flow.
+                        if (
+                               (color_right != NOTHING_COLOR)
+                            && (color_left  != NOTHING_COLOR)
+                           )
+                        {
+                            dy = 0;
+                        }
+                    }
+                    ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
                     break;
                 case BRICK_COLOR:
                     break;

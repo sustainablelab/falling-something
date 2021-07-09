@@ -1,0 +1,561 @@
+/** Author: sustainablelab with lots of help from bc
+ *     Run with :make (shortcut ;m<Space>)
+ *     Open func sig in SDL header:
+ *         ;w Ctrl-]  - open in NEW WINDOW
+ *         ;w Shift-] - open in PREVIEW WINDOW
+ *     Open and omni-complete uses ctags.
+ *     Install ctags:
+ *          $ pacman -S ctags
+ *     I separate tags into TWO files for speedier tag updates.
+ *     Setup and update the tags files like this:
+ *          :make tags # update tags for project src only (no tags for dependencies -- FAST)
+ *          :make lib-tags # updates tags for header file dependencies (a bit slower)
+ *     Go to https://wiki.libsdl.org/SDL_blah for docs and examples
+ */
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <SDL.h>
+#include <SDL_video.h>
+
+typedef uint32_t u32;
+typedef uint8_t bool;
+
+#define true 1
+#define false 0
+
+#define internal static // static functions are "internal"
+
+
+// ------------
+// | Math lib |
+// ------------
+
+int intmax(int a, int b)
+{
+    return (a < b) ? b : a;
+}
+
+int intmin(int a, int b)
+{
+    return (a < b) ? a : b;
+}
+
+
+// ---------------
+// | Logging lib |
+// ---------------
+
+FILE *f;
+internal void clear_log_file(void)
+{
+    f = fopen("log.txt", "w");
+    fclose(f);
+}
+
+internal void log_to_file(char * log_msg)
+{
+    f = fopen("log.txt", "a");
+    fprintf(f, log_msg);
+    fclose(f);
+}
+
+#define MAX_LOG_MSG 1024
+char log_msg[MAX_LOG_MSG];
+
+// ---Logging game things---
+bool log_me_xy = false;
+
+// ---Logging SDL things---
+internal void log_renderer_info(SDL_Renderer * renderer)
+{
+    // Get renderer info for logging.
+
+    SDL_RendererInfo info;
+    SDL_GetRendererInfo(
+            renderer, // SDL_Renderer *
+            &info // SDL_RendererInfo *
+            );
+
+    // Log name.
+    log_to_file("Renderer info:\n");
+    sprintf(log_msg, "\tname: %s\n", info.name);
+    log_to_file(log_msg);
+
+    // Log which flags are supported.
+    log_to_file("\tSupported SDL_RendererFlags:\n");
+    sprintf(log_msg,
+            "\t\tSDL_RENDERER_SOFTWARE: %s\n",
+            (info.flags & SDL_RENDERER_SOFTWARE) ? "True" : "False"
+            );
+    log_to_file(log_msg);
+    sprintf(log_msg,
+            "\t\tSDL_RENDERER_ACCELERATED: %s\n",
+            (info.flags & SDL_RENDERER_ACCELERATED) ? "True" : "False"
+            );
+    log_to_file(log_msg);
+    sprintf(log_msg,
+            "\t\tSDL_RENDERER_PRESENTVSYNC: %s\n",
+            (info.flags & SDL_RENDERER_PRESENTVSYNC) ? "True" : "False"
+            );
+    log_to_file(log_msg);
+    sprintf(log_msg,
+            "\t\tSDL_RENDERER_TARGETTEXTURE: %s\n",
+            (info.flags & SDL_RENDERER_TARGETTEXTURE) ? "True" : "False"
+            );
+    log_to_file(log_msg);
+
+    // Log texture info.
+    sprintf(log_msg, "\tNumber of available texture formats: %d\n", info.num_texture_formats);
+    log_to_file(log_msg);
+    sprintf(log_msg, "\tMax texture width: %d\n", info.max_texture_width);
+    log_to_file(log_msg);
+    sprintf(log_msg, "\tMax texture height: %d\n", info.max_texture_height);
+    log_to_file(log_msg);
+}
+
+
+// ---------------
+// | Drawing lib |
+// ---------------
+
+#define SCREEN_WIDTH 160
+#define SCREEN_HEIGHT 400
+
+/** Types of artwork
+ *
+ * Green cursor is a rect_t.
+ * Everything else is drawn pixel-by-pixel Noita style.
+ * Colors are RGBA: 0xRRGGBBAA.
+ * x,y conventions:
+ *  Cursor artwork: x is COL, y is ROW
+ *  Pixel artwork:  x is ROW, y is COL
+ */
+
+// ------------------
+// | Background art |
+// ------------------
+
+#define NOTHING_COLOR       0x00000000
+#define OUT_OF_BOUNDS_COLOR 0x00000001
+
+// --------------
+// | Cursor art |
+// --------------
+
+typedef struct
+{
+    int x;
+    int y;
+    int w;
+    int h;
+} rect_t;
+
+internal void FillRect(rect_t rect, u32 pixel_color, u32 *screen_pixels_prev)
+{
+    assert(screen_pixels_prev);
+    for (int row=0; row < rect.h; row++)
+    {
+        for (int col=0; col < rect.w; col++)
+        {
+            screen_pixels_prev[ (row + rect.y)*SCREEN_WIDTH + (col + rect.x) ] = pixel_color;
+        }
+    }
+}
+
+// -------------
+// | Pixel art |
+// -------------
+
+// Each pixel is a particle.
+
+// Number of particles to simulate
+#define NP 10000 // should be less than SCREEN_WIDTH * SCREEN_HEIGHT
+
+// NTYPES: Number of particle types
+#define NTYPES 3
+
+enum particle_type
+{
+    SAND,
+    WATER,
+    BRICK
+};
+
+#define SAND_COLOR 0xFFBB00FF
+#define WATER_COLOR 0x0000FFFF
+#define BRICK_COLOR 0xFF0000FF
+
+static const u32 colors[NTYPES] = {
+    SAND_COLOR,
+    WATER_COLOR,
+    BRICK_COLOR
+};
+
+/** How pixel coordinates work
+ *
+ * x is row number (vertical), with 0 at top of screen
+ * y is col number, with 0 at left of screen
+ *
+ *  index of pixel at row x, col 0 is:
+ *       row number * screen width
+ *  then hop to pixel in column y:
+ *       + y
+ */
+
+/**
+ *  \brief Set pixel color in PREV buffer.
+ *
+ *  \param x    Screen row number (0 is top)
+ *  \param y    Screen col number (0 is left)
+ *  \param color    Color to set at this pixel
+ *  \param screen_pixels    Pointer to the screen buffer to write to
+ */
+inline internal void ColorSetUnsafe(int x, int y, u32 color, u32 *screen_pixels)
+{
+    screen_pixels[x*SCREEN_WIDTH+y] = color;
+}
+
+/**
+ *  \brief Get pixel color
+ *
+ *  \param x    Screen row number (0 is top)
+ *  \param y    Screen col number (0 is left)
+ *  \param screen_pixels    Pointer to the screen buffer
+ *
+ *  \return color   RGBA as unsigned 32-bit, or 1 if (x,y) is outside screen
+ */
+inline internal u32 ColorAt(int x, int y, u32 *screen_pixels)
+{
+    if ((x >= 0) && (y >= 0) && (x < SCREEN_HEIGHT) && (y < SCREEN_WIDTH))
+    {
+        return screen_pixels[x*SCREEN_WIDTH+y];
+    }
+    else // Pixel is outside screen area
+    {
+        // Any value that is NOT the "NOTHING_COLOR" acts as a boundary
+        assert(NOTHING_COLOR != OUT_OF_BOUNDS_COLOR);
+        return OUT_OF_BOUNDS_COLOR;
+    }
+}
+
+
+// TODO: change to working on screen buffer
+/**
+ *  \brief Initial position and drawing of particles in the screen buffer
+ *
+ *  \param screen_pixels    Pointer to the screen buffer to write to
+ *  \param nseed_particles Number of particles to initialize
+ */
+// 
+internal void InitParticles(u32 * screen_pixels, u32 nseed_particles)
+{
+    // Sample nseeds
+    for (u32 i=0; i < nseed_particles; i++)
+    {
+        // Pick new x,y
+        int y = rand() % SCREEN_WIDTH;  // random col
+        int x = rand() % SCREEN_HEIGHT; // random row
+        // Draw SAND on the LEFT
+        if (y < SCREEN_WIDTH/4) // SAND
+        {
+            ColorSetUnsafe(x, y, SAND_COLOR, screen_pixels);
+        }
+        // Draw WATER on the RIGHT
+        else
+        {
+            ColorSetUnsafe(x, y, WATER_COLOR, screen_pixels);
+        }
+    }
+}
+
+void internal DrawBorder(u32 * screen_pixels)
+{
+        // ---Draw a border of bricks---
+        for (int x=0; x < SCREEN_HEIGHT; x++)
+        {
+            ColorSetUnsafe(x, 0, colors[BRICK], screen_pixels);
+            ColorSetUnsafe(x, SCREEN_WIDTH-1, colors[BRICK], screen_pixels);
+        }
+        for (int y=0; y < SCREEN_WIDTH; y++)
+        {
+            ColorSetUnsafe(0, y, colors[BRICK], screen_pixels);
+            ColorSetUnsafe(SCREEN_HEIGHT-1, y, colors[BRICK], screen_pixels);
+        }
+}
+
+/**
+ *  \brief Draw particles to NEXT based on PREV
+ *
+ */
+internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
+{
+    for (int row=0; row < SCREEN_HEIGHT; row++)
+    {
+        for (int col=0; col < SCREEN_WIDTH; col++)
+        {
+            u32 color = ColorAt(row, col, screen_pixels_prev);
+            switch (color)
+            {
+                case SAND_COLOR:
+                    // Fall down
+                    // Put SAND at pixel below
+                    ColorSetUnsafe(row+1, col, color, screen_pixels_next);
+                    break;
+                case WATER_COLOR:
+                    ColorSetUnsafe(row, col, color, screen_pixels_next);
+                    break;
+                case BRICK_COLOR:
+                    break;
+                case NOTHING_COLOR:
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+
+int main(int argc, char **argv)
+{
+    clear_log_file();
+
+    // ---------------
+    // | Game window |
+    // ---------------
+    sprintf(log_msg, "Open game window: %dx%d... ", SCREEN_WIDTH, SCREEN_HEIGHT);
+    log_to_file(log_msg);
+
+    SDL_Init(SDL_INIT_VIDEO);
+
+    SDL_Window *win = SDL_CreateWindow(
+            "h,j,k,l", // const char *title
+            SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, // int x, int y
+            SCREEN_WIDTH, SCREEN_HEIGHT, // int w, int h,
+            SDL_WINDOW_RESIZABLE // Uint32 flags
+            );
+    assert(win); log_to_file("OK\n");
+
+    SDL_Renderer *renderer = SDL_CreateRenderer(
+            win, // SDL_Window *
+            0, // int index
+            SDL_RENDERER_SOFTWARE // Uint32 flags
+            );
+    assert(renderer); log_renderer_info(renderer);
+
+
+    SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA8888);
+
+    SDL_Texture *screen = SDL_CreateTexture(
+            renderer, // SDL_Renderer *
+            format->format, // Uint32 format,
+            SDL_TEXTUREACCESS_STREAMING, // int access,
+            SCREEN_WIDTH, SCREEN_HEIGHT // int w, int h
+            );
+    assert(screen);
+
+    u32 *screen_pixels_prev = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
+    assert(screen_pixels_prev);
+
+    u32 *screen_pixels_next = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
+    assert(screen_pixels_next);
+
+    bool done = false;
+
+    // ----------------
+    // | INITIAL DRAW |
+    // ----------------
+
+    // ---------
+    // | Noita |
+    // ---------
+    InitParticles(screen_pixels_prev, NP);
+    DrawBorder(screen_pixels_prev);
+
+    // ---------------------------
+    // | Game graphics that move |
+    // ---------------------------
+
+    // Me
+    int me_w = SCREEN_WIDTH/50;
+    int me_h = SCREEN_HEIGHT/50;
+    rect_t me = {
+        // Center me on the screen:
+        SCREEN_WIDTH/2 - me_w/2,
+        SCREEN_HEIGHT/2 - me_h,
+        me_w,
+        me_h
+    };
+    u32 me_color = 0x22FF00FF; // RGBA
+
+    // ----------------------------------
+    // | Game graphics that do not move |
+    // ----------------------------------
+
+    // Background
+    rect_t bgnd = {0,0, SCREEN_WIDTH, SCREEN_HEIGHT};
+
+    // -----------------
+    // | Game controls |
+    // -----------------
+    bool pressed_down  = false;
+    bool pressed_up    = false;
+    bool pressed_left  = false;
+    bool pressed_right = false;
+
+
+    // -------------
+    // | GAME LOOP |
+    // -------------
+    while (!done)
+    {
+        // ----------------------
+        // | Get keyboard input |
+        // ----------------------
+
+        SDL_Event event;
+        while(SDL_PollEvent(&event))
+        {
+            if (event.type == SDL_QUIT)
+            {
+                done = true;
+            }
+
+            SDL_Keycode code = event.key.keysym.sym;
+
+            switch (code)
+            {
+                case SDLK_ESCAPE:
+                    done = true;
+                    break;
+
+                case SDLK_j:
+                    /* pressed_down = true; */
+                    pressed_down = (event.type == SDL_KEYDOWN);
+                    break;
+
+                case SDLK_k:
+                    pressed_up = (event.type == SDL_KEYDOWN);
+                    break;
+
+                case SDLK_h:
+                    pressed_left = (event.type == SDL_KEYDOWN);
+                    break;
+
+                case SDLK_l:
+                    pressed_right = (event.type == SDL_KEYDOWN);
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        // --------
+        // | DRAW |
+        // --------
+
+        FillRect(bgnd, NOTHING_COLOR, screen_pixels_next); // Clear the screen
+        DrawBorder(screen_pixels_next);
+        DrawParticles(screen_pixels_prev, screen_pixels_next);
+
+        // ---Draw me---
+        //
+        // TODO: control me speed
+        // TODO: add small delay after initial press before repeating movement
+        // TODO: change shape based on direction of movement
+        if (pressed_down)
+        {
+            if ((me.y + me.h) < SCREEN_HEIGHT) // not at bottom yet
+            {
+                me.y += me.h;
+            }
+            else // wraparound
+            {
+                me.y = 0;
+            }
+        }
+        if (pressed_up)
+        {
+            if (me.y > me.h) // not at top yet
+            {
+                me.y -= me.h;
+            }
+            else // wraparound
+            {
+                me.y = SCREEN_HEIGHT - me.h;
+            }
+        }
+        if (pressed_left)
+        {
+            if (me.x > 0)
+            {
+                me.x -= me.w;
+            }
+            else // moving left, wrap around to right sight of screen
+            {
+                me.x = SCREEN_WIDTH - me.w;
+            }
+        }
+        if (pressed_right)
+        {
+            if (me.x < (SCREEN_WIDTH - me.w))
+            {
+                me.x += me.w;
+            }
+            else // moving right, wrap around to left sight of screen
+            {
+                me.x = 0;
+            }
+        }
+        if (log_me_xy)
+        {
+            if (pressed_down || pressed_up || pressed_left || pressed_right)
+            {
+                sprintf(log_msg, "me (x,y) = (%d, %d)\n", me.x, me.y);
+                log_to_file(log_msg);
+            }
+        }
+
+        // Draw me in front of everything else
+        FillRect(me, me_color, screen_pixels_next);
+
+        /** BUFFER SWAP
+         *
+         *  \brief Swap screen_pixel buffers
+         *
+         *  Shift NEXT screen buffer into PREV screen buffer.
+         *  (PREV screen buffer is rendered in SDL_UpdateTexture).
+         */
+        {
+            u32 *tmp = screen_pixels_prev;
+            screen_pixels_prev = screen_pixels_next;
+            screen_pixels_next = tmp;
+        }
+
+        SDL_UpdateTexture(
+                screen,        // SDL_Texture *
+                NULL,          // const SDL_Rect * - NULL updates entire texture
+                screen_pixels_prev, // const void *pixels
+                SCREEN_WIDTH * sizeof(u32) // int pitch - n bytes in a row of pixel data
+                );
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(
+                renderer, // SDL_Renderer *
+                screen,   // SDL_Texture *
+                NULL, // const SDL_Rect * - SRC rect, NULL for entire TEXTURE
+                NULL  // const SDL_Rect * - DEST rect, NULL for entire RENDERING TARGET
+                );
+        SDL_RenderPresent(renderer);
+
+        SDL_Delay(15); // sets frame rate
+
+    }
+
+    return 0;
+    // Why return 0? Tis what 'make' expects.
+    //      Returning 0 avoids this:
+    //      make: *** [Makefile:6: run] Error 144
+}

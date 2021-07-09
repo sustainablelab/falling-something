@@ -2,3 +2,5 @@
 *.sw?
 *.exe
 log.txt
+tags
+lib-tags

@@ -1,6 +1,12 @@
 # You will need SDL2 (http://www.libsdl.org):
 # MSYS2:
 #   pacman -S mingw-w64-x86_64-SDL2
+# Automate compiler and linker flags:
+# MSYS2:
+#   pacman -S pkg-config
+# Tag-hopping and omni-complete:
+# MSYS2:
+#   pacman -S ctags
 
 run: falling-something.exe
 	./falling-something.exe

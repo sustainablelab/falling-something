@@ -1,16 +1,29 @@
-/** Author: sustainablelab with lots of help from bc
- *     Run with :make (shortcut ;m<Space>)
- *     Open func sig in SDL header:
- *         ;w Ctrl-]  - open in NEW WINDOW
- *         ;w Shift-] - open in PREVIEW WINDOW
- *     Open and omni-complete uses ctags.
- *     Install ctags:
+/** FALLING SOMETHING
+ *  \brief Pixels as particles of sand, water, fire, etc.
+ *
+ *  Author: sustainablelab with lots of help from bc
+ *  Dependencies: SDL2
+ *      Go to https://wiki.libsdl.org/SDL_blah for docs and examples
+ *
+ *  ---Cheatsheet---
+ *
+ *  Build and run:
+ *      ;m<Space> -- same as doing :make
+ *  Open func sig in SDL header:
+ *      ;w Ctrl-]  - open in NEW WINDOW
+ *      ;w Shift-] - open in PREVIEW WINDOW
+ *
+ *  New computer?
+ *  1. Install build dependencies:
+ *      $ pacman -S pkg-config
+ *      $ pacman -S mingw-w64-x86_64-SDL2 
+ *  2. Set up tags for hopping and omni-complete.
+ *      Install ctags:
  *          $ pacman -S ctags
- *     I separate tags into TWO files for speedier tag updates.
- *     Setup and update the tags files like this:
- *          :make tags # update tags for project src only (no tags for dependencies -- FAST)
- *          :make lib-tags # updates tags for header file dependencies (a bit slower)
- *     Go to https://wiki.libsdl.org/SDL_blah for docs and examples
+ *      Setup and update the tags files:
+ *          :make tags # update tags for project src only
+ *          :make lib-tags # updates tags for header file dependencies
+ *      I separate into src and lib (header) tags for speedier src tag updates.
  */
 
 #include <assert.h>

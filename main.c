@@ -254,14 +254,12 @@ inline internal u32 ColorAt(int x, int y, u32 *screen_pixels)
 }
 
 
-// TODO: change to working on screen buffer
 /**
  *  \brief Initial position and drawing of particles in the screen buffer
  *
  *  \param screen_pixels    Pointer to the screen buffer to write to
  *  \param nseed_particles Number of particles to initialize
  */
-// 
 internal void InitParticles(u32 * screen_pixels, u32 nseed_particles)
 {
     // Sample nseeds
@@ -271,7 +269,7 @@ internal void InitParticles(u32 * screen_pixels, u32 nseed_particles)
         int y = rand() % SCREEN_WIDTH;  // random col
         int x = rand() % SCREEN_HEIGHT; // random row
         // Draw SAND on the LEFT
-        if (y < SCREEN_WIDTH/4) // SAND
+        if (y < (3.0/4.0)*SCREEN_WIDTH) // SAND
         {
             ColorSetUnsafe(x, y, SAND_COLOR, screen_pixels);
         }
@@ -299,7 +297,7 @@ void internal DrawBorder(u32 * screen_pixels)
 }
 
 /**
- *  \brief Draw particles to NEXT based on PREV
+ *  \brief Draw particles in NEXT based on PREV
  *
  */
 internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
@@ -309,12 +307,56 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
         for (int col=0; col < SCREEN_WIDTH; col++)
         {
             u32 color = ColorAt(row, col, screen_pixels_prev);
+            u32 color_below = ColorAt(row+1, col, screen_pixels_prev);
+            u32 color_below_right = ColorAt(row+1, col+1, screen_pixels_prev);
+            u32 color_below_left = ColorAt(row+1, col-1, screen_pixels_prev);
+            int dy=0; // dy is 0, +1 or -1
+            int dx=0; // dx is 0, +1 or -1
             switch (color)
             {
                 case SAND_COLOR:
-                    // Fall down
-                    // Put SAND at pixel below
-                    ColorSetUnsafe(row+1, col, color, screen_pixels_next);
+                    // Fall down if nothing is below.
+                    if (color_below == NOTHING_COLOR)
+                    {
+                        dx = 1;
+                        dy = 0;
+                    }
+                    // Stop falling straight down if SAND or BRICK is below.
+                    if (
+                            (color_below == SAND_COLOR)
+                         || (color_below == BRICK_COLOR)
+                       )
+                    {
+                        // If nothing on either side, pick a side at RANDOM:
+                        if (
+                               (color_below_right == NOTHING_COLOR)
+                            && (color_below_left  == NOTHING_COLOR)
+                           )
+                        {
+                            dx = 1;
+                            // Pick a random left (-1) or right (+1)
+                            dy = (rand()%2 == 1) ? 1 : -1;
+                        }
+                        // If nothing on left only, fall to the left:
+                        if (
+                               (color_below_right != NOTHING_COLOR)
+                            && (color_below_left  == NOTHING_COLOR)
+                           )
+                        {
+                            dx = 1;
+                            dy = -1;
+                        }
+                        // If nothing on right only, fall to the right:
+                        if (
+                               (color_below_right == NOTHING_COLOR)
+                            && (color_below_left  != NOTHING_COLOR)
+                            )
+                        {
+                            dx = 1;
+                            dy = 1;
+                        }
+                    }
+                    ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
                     break;
                 case WATER_COLOR:
                     ColorSetUnsafe(row, col, color, screen_pixels_next);

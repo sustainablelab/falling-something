@@ -133,8 +133,11 @@ internal void log_renderer_info(SDL_Renderer * renderer)
 // | Drawing lib |
 // ---------------
 
-#define SCREEN_WIDTH 160
-#define SCREEN_HEIGHT 400
+#define SCREEN_WIDTH 150
+#define SCREEN_HEIGHT 100
+#define PIXEL_SCALE 4
+#define SCALED_SCREEN_WIDTH  (PIXEL_SCALE*SCREEN_WIDTH)
+#define SCALED_SCREEN_HEIGHT (PIXEL_SCALE*SCREEN_HEIGHT)
 
 /** Types of artwork
  *
@@ -184,10 +187,11 @@ internal void FillRect(rect_t rect, u32 pixel_color, u32 *screen_pixels_prev)
 // Each pixel is a particle.
 
 // Number of particles to simulate
-#define NP 10000 // should be less than SCREEN_WIDTH * SCREEN_HEIGHT
+#define NP 2000 // program aborts if NP > (SCREEN_WIDTH * SCREEN_HEIGHT)
 
 // NTYPES: Number of particle types
 #define NTYPES 3
+#define ALL_TYPES NTYPES
 
 enum particle_type
 {
@@ -259,24 +263,45 @@ inline internal u32 ColorAt(int x, int y, u32 *screen_pixels)
  *
  *  \param screen_pixels    Pointer to the screen buffer to write to
  *  \param nseed_particles Number of particles to initialize
+ *  \param type ALL_TYPES for all types or specify one type,
+ *  e.g., SAND for sand only. For specific types, I reduce the
+ *  footprint for where the new particles originate.
  */
-internal void InitParticles(u32 * screen_pixels, u32 nseed_particles)
+internal void InitParticles(u32 * screen_pixels, u32 nseed_particles, enum particle_type type)
 {
     // Sample nseeds
     for (u32 i=0; i < nseed_particles; i++)
     {
         // Pick new x,y
         int y = rand() % SCREEN_WIDTH;  // random col
-        int x = rand() % SCREEN_HEIGHT; // random row
-        // Draw SAND on the LEFT
-        if (y < (3.0/4.0)*SCREEN_WIDTH) // SAND
+        int x = rand() % SCREEN_HEIGHT; // random row in top-half of screen
+        // Limit specific particles to starting at the top of the screen
+        if (type != ALL_TYPES)
         {
-            ColorSetUnsafe(x, y, SAND_COLOR, screen_pixels);
+            y = rand() % SCREEN_WIDTH/2 + SCREEN_WIDTH/4;
+            x = rand() % SCREEN_HEIGHT/8;
         }
-        // Draw WATER on the RIGHT
-        else
+        // Let SAND be any particles between 1/m and 1/n of screen width
+        if ((type == SAND) || (type == ALL_TYPES))
         {
-            ColorSetUnsafe(x, y, WATER_COLOR, screen_pixels);
+            if (
+                ((1.0/5.0)*SCREEN_WIDTH < y )
+                && (y < (3.0/5.0)*SCREEN_WIDTH)
+               )
+            {
+                ColorSetUnsafe(x, y, SAND_COLOR, screen_pixels);
+            }
+        }
+        // And let WATER be to the RIGHT of SAND.
+        if ((type == WATER) || (type == ALL_TYPES))
+        {
+            if (
+                ((3.0/5.0)*SCREEN_WIDTH < y )
+                && (y < (5.0/5.0)*SCREEN_WIDTH)
+               )
+            {
+                ColorSetUnsafe(x, y, WATER_COLOR, screen_pixels);
+            }
         }
     }
 }
@@ -312,10 +337,16 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
             u32 color_below_left  = ColorAt(row+1, col-1, screen_pixels_prev);
             u32 color_right       = ColorAt(row,   col+1, screen_pixels_prev);
             u32 color_left        = ColorAt(row,   col-1, screen_pixels_prev);
+            // For WATER, also need to look at color in NEXT frame
+            u32 color_next        = ColorAt(row,   col,   screen_pixels_next);
+            u32 color_below_next  = ColorAt(row+1, col,   screen_pixels_next);
+            u32 color_right_next  = ColorAt(row,   col+1, screen_pixels_next);
+            u32 color_left_next   = ColorAt(row,   col-1, screen_pixels_next);
             int dy=0; // dy is 0, +1 or -1
             int dx=0; // dx is 0, +1 or -1
             switch (color)
             {
+
                 case SAND_COLOR:
                     // Fall down if nothing is below.
                     if (color_below == NOTHING_COLOR)
@@ -369,48 +400,49 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                     }
                     ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
                     break;
+
                 case WATER_COLOR:
-                    // Fall down if nothing is below.
-                    if (color_below == NOTHING_COLOR)
+                    // Fall down if nothing is below AND nothing
+                    // will be below.
+                    if (
+                            (color_below == NOTHING_COLOR)
+                         && (color_below_next == NOTHING_COLOR)
+                       )
                     {
                         dx = 1;
-                        dy = 0;
+                        /* dy = 0; */
                     }
                     // Stop falling if ANYTHING is below.
                     else
                     {
-                        dx = 0;
+                        /* dx = 0; */
                         // If nothing on either side, pick a side at RANDOM:
                         if (
-                                (color_right == NOTHING_COLOR)
-                             && (color_left  == NOTHING_COLOR)
+                                (color_right      == NOTHING_COLOR)
+                             && (color_right_next == NOTHING_COLOR)
+                             && (color_left       == NOTHING_COLOR)
+                             && (color_left_next  == NOTHING_COLOR)
                            )
                         {
                             dy = (rand()%2 == 1) ? 1 : -1;
                         }
                         // If nothing on left only, flow left:
-                        if (
-                               (color_right != NOTHING_COLOR)
-                            && (color_left  == NOTHING_COLOR)
+                        else if (
+                               (color_right      != NOTHING_COLOR)
+                            && (color_left       == NOTHING_COLOR)
+                            && (color_left_next  == NOTHING_COLOR)
                            )
                         {
                             dy = -1;
                         }
                         // If nothing on right only, flow right:
-                        if (
-                               (color_right == NOTHING_COLOR)
-                            && (color_left  != NOTHING_COLOR)
+                        else if (
+                               (color_right      == NOTHING_COLOR)
+                            && (color_right_next == NOTHING_COLOR)
+                            && (color_left       != NOTHING_COLOR)
                            )
                         {
                             dy = 1;
-                        }
-                        // If something on both sides, don't flow.
-                        if (
-                               (color_right != NOTHING_COLOR)
-                            && (color_left  != NOTHING_COLOR)
-                           )
-                        {
-                            dy = 0;
                         }
                     }
                     ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
@@ -434,15 +466,24 @@ int main(int argc, char **argv)
     // ---------------
     // | Game window |
     // ---------------
-    sprintf(log_msg, "Open game window: %dx%d... ", SCREEN_WIDTH, SCREEN_HEIGHT);
+    log_to_file("Number of particles should not exceed number of pixels\n");
+    sprintf(log_msg, "%d <= %d? ", NP, (SCREEN_WIDTH * SCREEN_HEIGHT));
+    log_to_file(log_msg);
+    sprintf(log_msg, "%s\n", (NP <= (SCREEN_WIDTH * SCREEN_HEIGHT)) ? "PASS" : "FAIL");
+    log_to_file(log_msg);
+    assert(NP <= (SCREEN_WIDTH * SCREEN_HEIGHT));
+    sprintf(log_msg, "Draw pixel at %dx scale.\n", PIXEL_SCALE);
+    log_to_file(log_msg);
+
+    sprintf(log_msg, "\nOpen game window: %dx%d... ", SCALED_SCREEN_WIDTH, SCALED_SCREEN_HEIGHT);
     log_to_file(log_msg);
 
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_Window *win = SDL_CreateWindow(
-            "h,j,k,l", // const char *title
+            "h,j,k,l,H,J,K,L,Space,s,w,Up,Down,Esc", // const char *title
             SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, // int x, int y
-            SCREEN_WIDTH, SCREEN_HEIGHT, // int w, int h,
+            SCALED_SCREEN_WIDTH, SCALED_SCREEN_HEIGHT, // int w, int h,
             SDL_WINDOW_RESIZABLE // Uint32 flags
             );
     assert(win); log_to_file("OK\n");
@@ -480,7 +521,7 @@ int main(int argc, char **argv)
     // ---------
     // | Noita |
     // ---------
-    InitParticles(screen_pixels_prev, NP);
+    InitParticles(screen_pixels_prev, NP, ALL_TYPES);
     DrawBorder(screen_pixels_prev);
 
     // ---------------------------
@@ -488,8 +529,10 @@ int main(int argc, char **argv)
     // ---------------------------
 
     // Me
-    int me_w = SCREEN_WIDTH/50;
-    int me_h = SCREEN_HEIGHT/50;
+    /* int me_w = SCREEN_WIDTH/50; */
+    int me_w = 2;
+    /* int me_h = SCREEN_HEIGHT/50; */
+    int me_h = 2;
     rect_t me = {
         // Center me on the screen:
         SCREEN_WIDTH/2 - me_w/2,
@@ -536,8 +579,36 @@ int main(int argc, char **argv)
 
             switch (code)
             {
-                case SDLK_ESCAPE:
+                case SDLK_ESCAPE: // Quit
                     done = true;
+                    break;
+
+                case SDLK_UP: // Grow me
+                    me.w++;
+                    me.h++;
+                    // Clamp at 10x10
+                    // Clamp at 1x1
+                    if (me.w > 10) me.w=10;
+                    if (me.h > 10) me.h=10;
+                    break;
+                case SDLK_DOWN: // Shrink me
+                    me.w--;
+                    me.h--;
+                    // Clamp at 1x1
+                    if (me.w < 1) me.w=1;
+                    if (me.h < 1) me.h=1;
+                    break;
+
+                case SDLK_SPACE: // More particles
+                    InitParticles(screen_pixels_prev, NP, ALL_TYPES);
+                    break;
+
+                case SDLK_s: // A little more sand
+                    InitParticles(screen_pixels_prev, NP, SAND);
+                    break;
+
+                case SDLK_w: // A little more water
+                    InitParticles(screen_pixels_prev, NP, WATER);
                     break;
 
                 case SDLK_j:
@@ -577,46 +648,74 @@ int main(int argc, char **argv)
         // TODO: change shape based on direction of movement
         if (pressed_down)
         {
-            if ((me.y + me.h) < SCREEN_HEIGHT) // not at bottom yet
+            if (SDL_GetModState() & KMOD_SHIFT)
             {
-                me.y += me.h;
+                me.y = SCREEN_HEIGHT - me.h;
             }
-            else // wraparound
+            else
             {
-                me.y = 0;
+                if ((me.y + me.h) < SCREEN_HEIGHT) // not at bottom yet
+                {
+                    me.y += me.h;
+                }
+                else // wraparound
+                {
+                    me.y = 0;
+                }
             }
         }
         if (pressed_up)
         {
-            if (me.y > me.h) // not at top yet
+            if (SDL_GetModState() & KMOD_SHIFT)
             {
-                me.y -= me.h;
+                me.y = 0;
             }
-            else // wraparound
+            else
             {
-                me.y = SCREEN_HEIGHT - me.h;
+                if (me.y > me.h) // not at top yet
+                {
+                    me.y -= me.h;
+                }
+                else // wraparound
+                {
+                    me.y = SCREEN_HEIGHT - me.h;
+                }
             }
         }
         if (pressed_left)
         {
-            if (me.x > 0)
+            if (SDL_GetModState() & KMOD_SHIFT)
             {
-                me.x -= me.w;
+                me.x = 0;
             }
-            else // moving left, wrap around to right sight of screen
+            else
             {
-                me.x = SCREEN_WIDTH - me.w;
+                if (me.x > 0)
+                {
+                    me.x -= me.w;
+                }
+                else // moving left, wrap around to right sight of screen
+                {
+                    me.x = SCREEN_WIDTH - me.w;
+                }
             }
         }
         if (pressed_right)
         {
-            if (me.x < (SCREEN_WIDTH - me.w))
+            if (SDL_GetModState() & KMOD_SHIFT)
             {
-                me.x += me.w;
+                me.x = SCREEN_WIDTH - me.w;
             }
-            else // moving right, wrap around to left sight of screen
+            else
             {
-                me.x = 0;
+                if (me.x < (SCREEN_WIDTH - me.w))
+                {
+                    me.x += me.w;
+                }
+                else // moving right, wrap around to left sight of screen
+                {
+                    me.x = 0;
+                }
             }
         }
         if (log_me_xy)
@@ -631,9 +730,9 @@ int main(int argc, char **argv)
         // Draw me in front of everything else
         FillRect(me, me_color, screen_pixels_next);
 
-        /** BUFFER SWAP
+        /** BUFFER COPY
          *
-         *  \brief Swap screen_pixel buffers
+         *  \brief Load screen[] with screen_next[]
          *
          *  Shift NEXT screen buffer into PREV screen buffer.
          *  (PREV screen buffer is rendered in SDL_UpdateTexture).

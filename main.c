@@ -273,8 +273,8 @@ internal void InitParticles(u32 * screen_pixels, u32 nseed_particles, enum parti
     for (u32 i=0; i < nseed_particles; i++)
     {
         // Pick new x,y
-        int y = rand() % SCREEN_WIDTH;  // random col
-        int x = rand() % SCREEN_HEIGHT; // random row in top-half of screen
+        int y = rand() % (SCREEN_WIDTH-1);  // random col
+        int x = rand() % (SCREEN_HEIGHT-1); // random row in top-half of screen
         // Limit specific particles to starting at the top of the screen
         if (type != ALL_TYPES)
         {

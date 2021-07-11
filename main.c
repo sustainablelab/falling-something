@@ -34,6 +34,7 @@
 
 typedef uint32_t u32;
 typedef uint8_t bool;
+typedef uint8_t u8;
 
 #define true 1
 #define false 0
@@ -163,8 +164,8 @@ internal void log_renderer_info(SDL_Renderer * renderer)
 // | Drawing lib |
 // ---------------
 
-#define SCREEN_WIDTH 150
-#define SCREEN_HEIGHT 100
+#define SCREEN_WIDTH 200
+#define SCREEN_HEIGHT 150
 #define PIXEL_SCALE 4
 #define SCALED_SCREEN_WIDTH  (PIXEL_SCALE*SCREEN_WIDTH)
 #define SCALED_SCREEN_HEIGHT (PIXEL_SCALE*SCREEN_HEIGHT)
@@ -185,8 +186,10 @@ internal void log_renderer_info(SDL_Renderer * renderer)
 
 #define NOTHING_COLOR       0x00000000
 #define OUT_OF_BOUNDS_COLOR 0x00000001
-/* #define BGND_COLOR       0xFF221100 */
-#define BGND_COLOR       0xFF221100
+#define BGND_COLOR       0x40221100
+/* #define NO_FLICKER       0x01010101 */
+/* #define BGND_FLICKER    (0x80552233 - BGND_COLOR) */
+#define BGND_FLICKER    (0x80000000 - (BGND_COLOR&0xFF000000) + (BGND_COLOR&0x00FFFFFF) + 0x00020202)
 
 // --------------
 // | Cursor art |
@@ -594,7 +597,7 @@ int main(int argc, char **argv)
 
     SDL_Window *win = SDL_CreateWindow(
             "h,j,k,l,H,J,K,L,Space,s,w,Up,Down,Esc", // const char *title
-            SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, // int x, int y
+            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, // int x, int y
             SCALED_SCREEN_WIDTH, SCALED_SCREEN_HEIGHT, // int w, int h,
             SDL_WINDOW_RESIZABLE // Uint32 flags
             );
@@ -636,10 +639,10 @@ int main(int argc, char **argv)
     //  -- one layer will completely hide the other.
     // There are four blend modes. I'm using alpha blend.
     // The math for each is in the comments in the header `SDL_blendmode.h`.
-    /* SDL_SetTextureBlendMode(layer_green, SDL_BLENDMODE_BLEND); */
-    SDL_SetTextureBlendMode(layer_green, SDL_BLENDMODE_ADD);
-    /* SDL_SetTextureBlendMode(layer_red, SDL_BLENDMODE_BLEND); */
-    SDL_SetTextureBlendMode(layer_red, SDL_BLENDMODE_ADD);
+    SDL_SetTextureBlendMode(layer_green, SDL_BLENDMODE_BLEND);
+    /* SDL_SetTextureBlendMode(layer_green, SDL_BLENDMODE_ADD); */
+    SDL_SetTextureBlendMode(layer_red, SDL_BLENDMODE_BLEND);
+    /* SDL_SetTextureBlendMode(layer_red, SDL_BLENDMODE_ADD); */
 
 
     SDL_Texture *screen = SDL_CreateTexture(
@@ -714,9 +717,9 @@ int main(int argc, char **argv)
 
     // Me
     /* int me_w = SCREEN_WIDTH/50; */
-    int me_w = 2;
+    int me_w = 4;
     /* int me_h = SCREEN_HEIGHT/50; */
-    int me_h = 2;
+    int me_h = 4;
     rect_t me = {
         // Center me on the screen:
         SCREEN_WIDTH/2 - me_w/2,
@@ -754,8 +757,11 @@ int main(int argc, char **argv)
     };
     // Both buffers start off empty because calloc sets all bytes
     // to 0x00000000. I only need to add color in the rect.
-    FillRect(green_shape, 0xFF00FF00, layer_green_pixels);
-    FillRect(red_shape, 0xFFFF0000, layer_red_pixels);
+    FillRect(green_shape, 0x8000FF00, layer_green_pixels);
+    FillRect(red_shape, 0x80FF0000, layer_red_pixels);
+
+    // Modulate the background color
+    u32 bgnd_color_flickering = BGND_COLOR;
 
     // ---------
     // | Noita |
@@ -857,6 +863,49 @@ int main(int argc, char **argv)
         // --------
         // | DRAW |
         // --------
+        // Modulate the background color
+        u32 Aflicker = 0;
+        u32 Rflicker = 0;
+        u32 Gflicker = 0;
+        u32 Bflicker = 0;
+        const u32 Amask = 0xFF000000;
+        const u32 Rmask = 0x00FF0000;
+        const u32 Gmask = 0x0000FF00;
+        const u32 Bmask = 0x000000FF;
+        const u32 Aflicker_max = BGND_FLICKER & Amask;
+        const u32 Rflicker_max = BGND_FLICKER & Rmask;
+        const u32 Gflicker_max = BGND_FLICKER & Gmask;
+        const u32 Bflicker_max = BGND_FLICKER & Bmask;
+        u8 flicker_rate = 17;
+        if (rand()%flicker_rate == 1)
+        {
+            if (Aflicker_max > 0) // % requires non-zero operand
+            {
+                Aflicker = (rand()%((Aflicker_max) >> 24)) << 24;
+            }
+            if (Rflicker_max > 0) // % requires non-zero operand
+            {
+                Rflicker = (rand()%((Rflicker_max) >> 16)) << 16;
+            }
+            if (Gflicker_max > 0) // % requires non-zero operand
+            {
+                Gflicker = (rand()%((Gflicker_max) >>  8)) <<  8;
+            }
+            if (Bflicker_max > 0) // % requires non-zero operand
+            {
+                Bflicker = (rand()%((Bflicker_max) >>  0)) <<  0;
+            }
+        }
+        u32 bgnd_color_a = (BGND_COLOR & Amask) + Aflicker;
+        u32 bgnd_color_r = (BGND_COLOR & Rmask) + Rflicker;
+        u32 bgnd_color_g = (BGND_COLOR & Gmask) + Gflicker;
+        u32 bgnd_color_b = (BGND_COLOR & Bmask) + Bflicker;
+
+        bgnd_color_flickering = bgnd_color_a | (bgnd_color_flickering & 0x00FFFFFF);
+        bgnd_color_flickering |= (bgnd_color_r | (bgnd_color_flickering & 0xFF00FFFF));
+        bgnd_color_flickering |= (bgnd_color_g | (bgnd_color_flickering & 0xFFFF00FF));
+        bgnd_color_flickering |= (bgnd_color_b | (bgnd_color_flickering & 0xFFFFFF00));
+        FillRect(empty_space, bgnd_color_flickering, bgnd_pixels);
         // Clear the player
         /* FillRect(empty_space, NOTHING_COLOR, player_pixels); */
         // Clear the old particle position calculations

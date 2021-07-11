@@ -166,7 +166,10 @@ internal void log_renderer_info(SDL_Renderer * renderer)
 
 #define SCREEN_WIDTH 200
 #define SCREEN_HEIGHT 150
+/* #define SCREEN_WIDTH 1280 */
+/* #define SCREEN_HEIGHT 760 */
 #define PIXEL_SCALE 4
+/* #define PIXEL_SCALE 1 */
 #define SCALED_SCREEN_WIDTH  (PIXEL_SCALE*SCREEN_WIDTH)
 #define SCALED_SCREEN_HEIGHT (PIXEL_SCALE*SCREEN_HEIGHT)
 
@@ -600,6 +603,7 @@ int main(int argc, char **argv)
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, // int x, int y
             SCALED_SCREEN_WIDTH, SCALED_SCREEN_HEIGHT, // int w, int h,
             SDL_WINDOW_RESIZABLE // Uint32 flags
+            /* SDL_WINDOW_FULLSCREEN_DESKTOP // Uint32 flags */
             );
     assert(win); log_to_file("OK\n");
 

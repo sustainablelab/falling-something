@@ -122,6 +122,12 @@ internal void log_renderer_info(SDL_Renderer * renderer)
     // Log texture info.
     sprintf(log_msg, "\tNumber of available texture formats: %d\n", info.num_texture_formats);
     log_to_file(log_msg);
+    log_to_file("\tAvailable texture formats:\n");
+    for (int i=0; i < info.num_texture_formats; i++)
+    {
+        sprintf(log_msg, "\t\t%d\n", info.texture_formats[i]);
+        log_to_file(log_msg);
+    }
     sprintf(log_msg, "\tMax texture width: %d\n", info.max_texture_width);
     log_to_file(log_msg);
     sprintf(log_msg, "\tMax texture height: %d\n", info.max_texture_height);
@@ -190,23 +196,33 @@ internal void FillRect(rect_t rect, u32 pixel_color, u32 *screen_pixels_prev)
 #define NP 2000 // program aborts if NP > (SCREEN_WIDTH * SCREEN_HEIGHT)
 
 // NTYPES: Number of particle types
-#define NTYPES 3
+#define NTYPES 4
 #define ALL_TYPES NTYPES
 
 enum particle_type
 {
     SAND,
+    SLIME,
     WATER,
     BRICK
 };
 
-#define SAND_COLOR 0xFFBB00FF
-#define WATER_COLOR 0x0088FFFF
-#define BRICK_COLOR 0xFF0000FF
+// RGBA
+#define SAND_COLOR  0xFFBB0010
+#define WATER_COLOR 0x0088FF10
+#define SLIME_COLOR 0xFF88FF10
+#define BRICK_COLOR 0xFF000010
+
+// ARGB
+/* #define SAND_COLOR  0x10FFBB00 */
+/* #define WATER_COLOR 0x100088FF */
+/* #define SLIME_COLOR 0x10FF88FF */
+/* #define BRICK_COLOR 0x10FF0000 */
 
 static const u32 colors[NTYPES] = {
     SAND_COLOR,
     WATER_COLOR,
+    SLIME_COLOR,
     BRICK_COLOR
 };
 
@@ -296,11 +312,22 @@ internal void InitParticles(u32 * screen_pixels, u32 nseed_particles, enum parti
         if ((type == WATER) || (type == ALL_TYPES))
         {
             if (
-                ((3.0/5.0)*SCREEN_WIDTH < y )
-                && (y < (5.0/5.0)*SCREEN_WIDTH)
+                ((2.5/5.0)*SCREEN_WIDTH < y )
+                && (y < (4.0/5.0)*SCREEN_WIDTH)
                )
             {
                 ColorSetUnsafe(x, y, WATER_COLOR, screen_pixels);
+            }
+        }
+        // And let SLIME be to the far RIGHT.
+        if ((type == SLIME) || (type == ALL_TYPES))
+        {
+            if (
+                ((3.5/5.0)*SCREEN_WIDTH < y )
+                && (y < (5.0/5.0)*SCREEN_WIDTH)
+               )
+            {
+                ColorSetUnsafe(x, y, SLIME_COLOR, screen_pixels);
             }
         }
     }
@@ -401,6 +428,53 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                     ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
                     break;
 
+                case SLIME_COLOR:
+                    // Fall down if nothing is below AND nothing
+                    // will be below.
+                    if (
+                            (color_below == NOTHING_COLOR)
+                         && (color_below_next == NOTHING_COLOR)
+                       )
+                    {
+                        dx = 1;
+                        /* dy = 0; */
+                    }
+                    // Stop falling if ANYTHING is below.
+                    else
+                    {
+                        /* dx = 0; */
+                        // If nothing on either side, pick a side at RANDOM:
+                        if (
+                                (color_right      == NOTHING_COLOR)
+                             && (color_right_next == NOTHING_COLOR)
+                             && (color_left       == NOTHING_COLOR)
+                             && (color_left_next  == NOTHING_COLOR)
+                           )
+                        {
+                            dy = (rand()%2 == 1) ? 1 : -1;
+                        }
+                        // If nothing on left only, flow left:
+                        else if (
+                               (color_right      != NOTHING_COLOR)
+                            && (color_left       == NOTHING_COLOR)
+                            && (color_left_next  == NOTHING_COLOR)
+                           )
+                        {
+                            dy = -1;
+                        }
+                        // If nothing on right only, flow right:
+                        else if (
+                               (color_right      == NOTHING_COLOR)
+                            && (color_right_next == NOTHING_COLOR)
+                            && (color_left       != NOTHING_COLOR)
+                           )
+                        {
+                            dy = 1;
+                        }
+                    }
+                    ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
+                    break;
+
                 case WATER_COLOR:
                     // Fall down if nothing is below AND nothing
                     // will be below.
@@ -490,13 +564,14 @@ int main(int argc, char **argv)
 
     SDL_Renderer *renderer = SDL_CreateRenderer(
             win, // SDL_Window *
-            0, // int index
-            SDL_RENDERER_SOFTWARE // Uint32 flags
+            -1, // int index
+            SDL_RENDERER_ACCELERATED // Uint32 flags
             );
     assert(renderer); log_renderer_info(renderer);
 
 
     SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA8888);
+    /* SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_ARGB8888); */
 
     SDL_Texture *screen = SDL_CreateTexture(
             renderer, // SDL_Renderer *
@@ -540,7 +615,10 @@ int main(int argc, char **argv)
         me_w,
         me_h
     };
-    u32 me_color = 0x22FF00FF; // RGBA
+    // RGBA
+    u32 me_color = 0x22FF00FF;
+    // ARGB
+    /* u32 me_color = 0x8022FF00; */
 
     // ----------------------------------
     // | Game graphics that do not move |
@@ -609,6 +687,9 @@ int main(int argc, char **argv)
 
                 case SDLK_w: // A little more water
                     InitParticles(screen_pixels_prev, NP, WATER);
+                    break;
+                case SDLK_p: // A little more slime
+                    InitParticles(screen_pixels_prev, NP, SLIME);
                     break;
 
                 case SDLK_j:

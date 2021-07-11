@@ -334,6 +334,16 @@ single pixel to the left or to the right.
 
 # TO DO
 
+- finish figuring out transparency
+    - I figured out I need to use more than texture
+    - the alpha is used to blend the textures
+    - try playing with the blend mode
+    - the order in which textures are copied to the renderer also
+      makes a big difference
+    - try getting the green "me" to look like it's in the water
+      by using transparency -- I think it has to go on its own
+      texture, but then I think I'll lose the particle erasing
+      behavior
 - add simple momentum for waves
 - make waves
 - add more general momentum

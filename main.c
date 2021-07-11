@@ -125,12 +125,36 @@ internal void log_renderer_info(SDL_Renderer * renderer)
     log_to_file("\tAvailable texture formats:\n");
     for (int i=0; i < info.num_texture_formats; i++)
     {
-        sprintf(log_msg, "\t\t%d\n", info.texture_formats[i]);
+        u32 format = info.texture_formats[i];
+        sprintf(log_msg, "\t\tName: %s, u32 value: %lu\n", SDL_GetPixelFormatName(format), format);
         log_to_file(log_msg);
+        int bpp; // bits per pixel
+        u32 Rmask;
+        u32 Gmask;
+        u32 Bmask;
+        u32 Amask;
+        bool conversion_OK = SDL_PixelFormatEnumToMasks(format, &bpp, &Rmask, &Gmask, &Bmask, &Amask);
+        if (conversion_OK)
+        {
+            sprintf(log_msg, "\t\t\tbpp: %d\n", bpp);
+            log_to_file(log_msg);
+            sprintf(log_msg, "\t\t\tAmask: 0x%8X\n", Amask); // "%lu", Amask>>24
+            log_to_file(log_msg);
+            sprintf(log_msg, "\t\t\tRmask: 0x%8X\n", Rmask); // "%lu", Rmask>>16
+            log_to_file(log_msg);
+            sprintf(log_msg, "\t\t\tGmask: 0x%8X\n", Gmask); // "%lu", Gmask>>8
+            log_to_file(log_msg);
+            sprintf(log_msg, "\t\t\tBmask: 0x%8X\n", Bmask);
+            log_to_file(log_msg);
+        }
+        else
+        {
+            log_to_file("\t\t\tFAIL: Cannot convert PixelFormatEnum to Masks.\n");
+        }
     }
-    sprintf(log_msg, "\tMax texture width: %d\n", info.max_texture_width);
+    sprintf(log_msg, "\tMax texture width: %lu\n", info.max_texture_width);
     log_to_file(log_msg);
-    sprintf(log_msg, "\tMax texture height: %d\n", info.max_texture_height);
+    sprintf(log_msg, "\tMax texture height: %lu\n", info.max_texture_height);
     log_to_file(log_msg);
 }
 
@@ -149,7 +173,7 @@ internal void log_renderer_info(SDL_Renderer * renderer)
  *
  * Green cursor is a rect_t.
  * Everything else is drawn pixel-by-pixel Noita style.
- * Colors are RGBA: 0xRRGGBBAA.
+ * Colors are ARGBA: 0xAARRGGBB.
  * x,y conventions:
  *  Cursor artwork: x is COL, y is ROW
  *  Pixel artwork:  x is ROW, y is COL
@@ -161,6 +185,8 @@ internal void log_renderer_info(SDL_Renderer * renderer)
 
 #define NOTHING_COLOR       0x00000000
 #define OUT_OF_BOUNDS_COLOR 0x00000001
+/* #define BGND_COLOR       0xFF221100 */
+#define BGND_COLOR       0x00221100
 
 // --------------
 // | Cursor art |
@@ -207,17 +233,17 @@ enum particle_type
     BRICK
 };
 
-// RGBA
-#define SAND_COLOR  0xFFBB0010
-#define WATER_COLOR 0x0088FF10
-#define SLIME_COLOR 0xFF88FF10
-#define BRICK_COLOR 0xFF000010
+// RGBA is not available!
+/* #define SAND_COLOR  0xFFBB0010 */
+/* #define WATER_COLOR 0x0088FF10 */
+/* #define SLIME_COLOR 0xFF88FF10 */
+/* #define BRICK_COLOR 0xFF000010 */
 
-// ARGB
-/* #define SAND_COLOR  0x10FFBB00 */
-/* #define WATER_COLOR 0x100088FF */
-/* #define SLIME_COLOR 0x10FF88FF */
-/* #define BRICK_COLOR 0x10FF0000 */
+// ARGB8888
+#define SAND_COLOR  0xFFFFBB00
+#define WATER_COLOR 0xC00088FF
+#define SLIME_COLOR 0xD0FF88FF
+#define BRICK_COLOR 0xFFFF0000
 
 static const u32 colors[NTYPES] = {
     SAND_COLOR,
@@ -257,7 +283,7 @@ inline internal void ColorSetUnsafe(int x, int y, u32 color, u32 *screen_pixels)
  *  \param y    Screen col number (0 is left)
  *  \param screen_pixels    Pointer to the screen buffer
  *
- *  \return color   RGBA as unsigned 32-bit, or 1 if (x,y) is outside screen
+ *  \return color   ARGB as unsigned 32-bit, or 1 if (x,y) is outside screen
  */
 inline internal u32 ColorAt(int x, int y, u32 *screen_pixels)
 {
@@ -297,37 +323,41 @@ internal void InitParticles(u32 * screen_pixels, u32 nseed_particles, enum parti
             y = rand() % SCREEN_WIDTH/2 + SCREEN_WIDTH/4;
             x = rand() % SCREEN_HEIGHT/8;
         }
-        // Let SAND be any particles between 1/m and 1/n of screen width
-        if ((type == SAND) || (type == ALL_TYPES))
+        // Only put new particles in empty space
+        if (ColorAt(x, y, screen_pixels) == NOTHING_COLOR)
         {
-            if (
-                ((1.0/5.0)*SCREEN_WIDTH < y )
-                && (y < (3.0/5.0)*SCREEN_WIDTH)
-               )
+            // Let SAND be any particles between 1/m and 1/n of screen width
+            if ((type == SAND) || (type == ALL_TYPES))
             {
-                ColorSetUnsafe(x, y, SAND_COLOR, screen_pixels);
+                if (
+                    ((1.0/5.0)*SCREEN_WIDTH < y )
+                    && (y < (3.0/5.0)*SCREEN_WIDTH)
+                   )
+                {
+                    ColorSetUnsafe(x, y, SAND_COLOR, screen_pixels);
+                }
             }
-        }
-        // And let WATER be to the RIGHT of SAND.
-        if ((type == WATER) || (type == ALL_TYPES))
-        {
-            if (
-                ((2.5/5.0)*SCREEN_WIDTH < y )
-                && (y < (4.0/5.0)*SCREEN_WIDTH)
-               )
+            // And let WATER be to the RIGHT of SAND.
+            if ((type == WATER) || (type == ALL_TYPES))
             {
-                ColorSetUnsafe(x, y, WATER_COLOR, screen_pixels);
+                if (
+                    ((2.5/5.0)*SCREEN_WIDTH < y )
+                    && (y < (4.0/5.0)*SCREEN_WIDTH)
+                   )
+                {
+                    ColorSetUnsafe(x, y, WATER_COLOR, screen_pixels);
+                }
             }
-        }
-        // And let SLIME be to the far RIGHT.
-        if ((type == SLIME) || (type == ALL_TYPES))
-        {
-            if (
-                ((3.5/5.0)*SCREEN_WIDTH < y )
-                && (y < (5.0/5.0)*SCREEN_WIDTH)
-               )
+            // And let SLIME be to the far RIGHT.
+            if ((type == SLIME) || (type == ALL_TYPES))
             {
-                ColorSetUnsafe(x, y, SLIME_COLOR, screen_pixels);
+                if (
+                    ((3.5/5.0)*SCREEN_WIDTH < y )
+                    && (y < (5.0/5.0)*SCREEN_WIDTH)
+                   )
+                {
+                    ColorSetUnsafe(x, y, SLIME_COLOR, screen_pixels);
+                }
             }
         }
     }
@@ -442,34 +472,42 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                     // Stop falling if ANYTHING is below.
                     else
                     {
-                        /* dx = 0; */
-                        // If nothing on either side, pick a side at RANDOM:
-                        if (
-                                (color_right      == NOTHING_COLOR)
-                             && (color_right_next == NOTHING_COLOR)
-                             && (color_left       == NOTHING_COLOR)
-                             && (color_left_next  == NOTHING_COLOR)
-                           )
+                        // Make SLIME sticky!
+                        // Give SLIME a 1 out of 47 chance of moving.
+                        bool is_moving = (rand()%47 == 1) ? true : false;
+
+                        if (is_moving)
                         {
-                            dy = (rand()%2 == 1) ? 1 : -1;
-                        }
-                        // If nothing on left only, flow left:
-                        else if (
-                               (color_right      != NOTHING_COLOR)
-                            && (color_left       == NOTHING_COLOR)
-                            && (color_left_next  == NOTHING_COLOR)
-                           )
-                        {
-                            dy = -1;
-                        }
-                        // If nothing on right only, flow right:
-                        else if (
-                               (color_right      == NOTHING_COLOR)
-                            && (color_right_next == NOTHING_COLOR)
-                            && (color_left       != NOTHING_COLOR)
-                           )
-                        {
-                            dy = 1;
+
+                            /* dx = 0; */
+                            // If nothing on either side, pick a side at RANDOM:
+                            if (
+                                    (color_right      == NOTHING_COLOR)
+                                 && (color_right_next == NOTHING_COLOR)
+                                 && (color_left       == NOTHING_COLOR)
+                                 && (color_left_next  == NOTHING_COLOR)
+                               )
+                            {
+                                dy = (rand()%2 == 1) ? 1 : -1;
+                            }
+                            // If nothing on left only, flow left:
+                            else if (
+                                   (color_right      != NOTHING_COLOR)
+                                && (color_left       == NOTHING_COLOR)
+                                && (color_left_next  == NOTHING_COLOR)
+                               )
+                            {
+                                dy = -1;
+                            }
+                            // If nothing on right only, flow right:
+                            else if (
+                                   (color_right      == NOTHING_COLOR)
+                                && (color_right_next == NOTHING_COLOR)
+                                && (color_left       != NOTHING_COLOR)
+                               )
+                            {
+                                dy = 1;
+                            }
                         }
                     }
                     ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
@@ -570,16 +608,45 @@ int main(int argc, char **argv)
     assert(renderer); log_renderer_info(renderer);
 
 
-    SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA8888);
-    /* SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_ARGB8888); */
+    // RGBA8888 is not available!
+    /* SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA8888); */
+    SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_ARGB8888);
+
+    // Confirm this format has an alpha channel
+    assert(SDL_ISPIXELFORMAT_ALPHA(format->format));
 
     SDL_Texture *screen = SDL_CreateTexture(
             renderer, // SDL_Renderer *
             format->format, // Uint32 format,
-            SDL_TEXTUREACCESS_STREAMING, // int access,
+            SDL_TEXTUREACCESS_TARGET, // int access,
             SCREEN_WIDTH, SCREEN_HEIGHT // int w, int h
             );
     assert(screen);
+
+    SDL_SetTextureBlendMode(screen, SDL_BLENDMODE_BLEND);
+
+    // Create a separate texture for background artwork.
+    // For now, just a solid color.
+    SDL_Texture *bgnd = SDL_CreateTexture(
+            renderer, // SDL_Renderer *
+            format->format, // Uint32 format,
+            SDL_TEXTUREACCESS_TARGET, // int access,
+            SCREEN_WIDTH, SCREEN_HEIGHT // int w, int h
+            );
+    assert(bgnd);
+
+    SDL_SetTextureBlendMode(bgnd, SDL_BLENDMODE_BLEND);
+
+    // Check the texture format
+    u32 format_check;
+    int access_check;
+    int w_check;
+    int h_check;
+    SDL_QueryTexture(screen, &format_check, &access_check, &w_check, &h_check);
+    sprintf(log_msg, "\tUsing texture format: %s\n", SDL_GetPixelFormatName(format_check));
+    log_to_file(log_msg);
+    sprintf(log_msg, "\tUsing texture access: %d\n", access_check);
+    log_to_file(log_msg);
 
     u32 *screen_pixels_prev = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
     assert(screen_pixels_prev);
@@ -587,17 +654,14 @@ int main(int argc, char **argv)
     u32 *screen_pixels_next = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
     assert(screen_pixels_next);
 
+    u32 *bgnd_pixels = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
+    assert(bgnd_pixels);
+
     bool done = false;
 
     // ----------------
     // | INITIAL DRAW |
     // ----------------
-
-    // ---------
-    // | Noita |
-    // ---------
-    InitParticles(screen_pixels_prev, NP, ALL_TYPES);
-    DrawBorder(screen_pixels_prev);
 
     // ---------------------------
     // | Game graphics that move |
@@ -615,17 +679,28 @@ int main(int argc, char **argv)
         me_w,
         me_h
     };
-    // RGBA
-    u32 me_color = 0x22FF00FF;
+    // RGBA is not available!
+    /* u32 me_color = 0x22FF00FF; */
     // ARGB
     /* u32 me_color = 0x8022FF00; */
+    u32 me_color = 0x80FFFFFF;
 
     // ----------------------------------
     // | Game graphics that do not move |
     // ----------------------------------
 
-    // Background
-    rect_t bgnd = {0,0, SCREEN_WIDTH, SCREEN_HEIGHT};
+    // Empty background
+    rect_t empty_space = {0,0, SCREEN_WIDTH, SCREEN_HEIGHT};
+
+    // ---------
+    // | Noita |
+    // ---------
+    // Put a solid color in the background.
+    FillRect(empty_space, BGND_COLOR, bgnd_pixels);
+    // Clear the screen for InitParticles to have a clean canvas.
+    FillRect(empty_space, NOTHING_COLOR, screen_pixels_prev);
+    InitParticles(screen_pixels_prev, NP, ALL_TYPES);
+    DrawBorder(screen_pixels_prev);
 
     // -----------------
     // | Game controls |
@@ -648,7 +723,7 @@ int main(int argc, char **argv)
         SDL_Event event;
         while(SDL_PollEvent(&event))
         {
-            if (event.type == SDL_QUIT)
+            if (event.type == SDL_QUIT) // Click window close
             {
                 done = true;
             }
@@ -657,11 +732,11 @@ int main(int argc, char **argv)
 
             switch (code)
             {
-                case SDLK_ESCAPE: // Quit
+                case SDLK_ESCAPE: // Esc - Quit
                     done = true;
                     break;
 
-                case SDLK_UP: // Grow me
+                case SDLK_UP: // Up - Grow me
                     me.w++;
                     me.h++;
                     // Clamp at 10x10
@@ -669,7 +744,7 @@ int main(int argc, char **argv)
                     if (me.w > 10) me.w=10;
                     if (me.h > 10) me.h=10;
                     break;
-                case SDLK_DOWN: // Shrink me
+                case SDLK_DOWN: // Down - Shrink me
                     me.w--;
                     me.h--;
                     // Clamp at 1x1
@@ -677,35 +752,35 @@ int main(int argc, char **argv)
                     if (me.h < 1) me.h=1;
                     break;
 
-                case SDLK_SPACE: // More particles
+                case SDLK_SPACE: // Space - more particles
                     InitParticles(screen_pixels_prev, NP, ALL_TYPES);
                     break;
 
-                case SDLK_s: // A little more sand
+                case SDLK_s: // s - a little more sand
                     InitParticles(screen_pixels_prev, NP, SAND);
                     break;
 
-                case SDLK_w: // A little more water
+                case SDLK_w: // w - a little more water
                     InitParticles(screen_pixels_prev, NP, WATER);
                     break;
-                case SDLK_p: // A little more slime
+                case SDLK_p: // p - a little more slime
                     InitParticles(screen_pixels_prev, NP, SLIME);
                     break;
 
-                case SDLK_j:
+                case SDLK_j: // j - move me down
                     /* pressed_down = true; */
                     pressed_down = (event.type == SDL_KEYDOWN);
                     break;
 
-                case SDLK_k:
+                case SDLK_k: // k - move me up
                     pressed_up = (event.type == SDL_KEYDOWN);
                     break;
 
-                case SDLK_h:
+                case SDLK_h: // h - move me left
                     pressed_left = (event.type == SDL_KEYDOWN);
                     break;
 
-                case SDLK_l:
+                case SDLK_l: // l - move me right
                     pressed_right = (event.type == SDL_KEYDOWN);
                     break;
 
@@ -718,7 +793,7 @@ int main(int argc, char **argv)
         // | DRAW |
         // --------
 
-        FillRect(bgnd, NOTHING_COLOR, screen_pixels_next); // Clear the screen
+        FillRect(empty_space, NOTHING_COLOR, screen_pixels_next); // Clear the screen
         DrawBorder(screen_pixels_next);
         DrawParticles(screen_pixels_prev, screen_pixels_next);
 
@@ -810,6 +885,7 @@ int main(int argc, char **argv)
 
         // Draw me in front of everything else
         FillRect(me, me_color, screen_pixels_next);
+        /* FillRect(me, me_color, me_pixels); */
 
         /** BUFFER COPY
          *
@@ -830,7 +906,19 @@ int main(int argc, char **argv)
                 screen_pixels_prev, // const void *pixels
                 SCREEN_WIDTH * sizeof(u32) // int pitch - n bytes in a row of pixel data
                 );
+        SDL_UpdateTexture(
+                bgnd,        // SDL_Texture *
+                NULL,          // const SDL_Rect * - NULL updates entire texture
+                bgnd_pixels, // const void *pixels
+                SCREEN_WIDTH * sizeof(u32) // int pitch - n bytes in a row of pixel data
+                );
         SDL_RenderClear(renderer);
+        SDL_RenderCopy(
+                renderer, // SDL_Renderer *
+                bgnd,   // SDL_Texture *
+                NULL, // const SDL_Rect * - SRC rect, NULL for entire TEXTURE
+                NULL  // const SDL_Rect * - DEST rect, NULL for entire RENDERING TARGET
+                );
         SDL_RenderCopy(
                 renderer, // SDL_Renderer *
                 screen,   // SDL_Texture *
@@ -842,6 +930,10 @@ int main(int argc, char **argv)
         SDL_Delay(15); // sets frame rate
 
     }
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(win);
+    SDL_Quit();
 
     return 0;
     // Why return 0? Tis what 'make' expects.

@@ -186,7 +186,7 @@ internal void log_renderer_info(SDL_Renderer * renderer)
 #define NOTHING_COLOR       0x00000000
 #define OUT_OF_BOUNDS_COLOR 0x00000001
 /* #define BGND_COLOR       0xFF221100 */
-#define BGND_COLOR       0x00221100
+#define BGND_COLOR       0xFF221100
 
 // --------------
 // | Cursor art |
@@ -615,6 +615,33 @@ int main(int argc, char **argv)
     // Confirm this format has an alpha channel
     assert(SDL_ISPIXELFORMAT_ALPHA(format->format));
 
+    // Alpha experimentation
+    SDL_Texture *layer_green = SDL_CreateTexture(
+            renderer, // SDL_Renderer *
+            format->format, // u32 SDL_PIXELFORMAT_RGBA888
+            SDL_TEXTUREACCESS_STREAMING, // Changes frequently
+            SCREEN_WIDTH, SCREEN_HEIGHT // int w, int h
+            );
+    assert(layer_green);
+    SDL_Texture *layer_red = SDL_CreateTexture(
+            renderer, // SDL_Renderer *
+            format->format, // u32 SDL_PIXELFORMAT_RGBA888
+            SDL_TEXTUREACCESS_STREAMING, // Changes frequently
+            SCREEN_WIDTH, SCREEN_HEIGHT // int w, int h
+            );
+    assert(layer_red);
+
+    // Make these layers blend.
+    // Default is no blend:
+    //  -- one layer will completely hide the other.
+    // There are four blend modes. I'm using alpha blend.
+    // The math for each is in the comments in the header `SDL_blendmode.h`.
+    /* SDL_SetTextureBlendMode(layer_green, SDL_BLENDMODE_BLEND); */
+    SDL_SetTextureBlendMode(layer_green, SDL_BLENDMODE_ADD);
+    /* SDL_SetTextureBlendMode(layer_red, SDL_BLENDMODE_BLEND); */
+    SDL_SetTextureBlendMode(layer_red, SDL_BLENDMODE_ADD);
+
+
     SDL_Texture *screen = SDL_CreateTexture(
             renderer, // SDL_Renderer *
             format->format, // Uint32 format,
@@ -637,6 +664,17 @@ int main(int argc, char **argv)
 
     SDL_SetTextureBlendMode(bgnd, SDL_BLENDMODE_BLEND);
 
+    // Create a separate texture for me.
+    /* SDL_Texture *player = SDL_CreateTexture( */
+    /*         renderer, // SDL_Renderer * */
+    /*         format->format, // Uint32 format, */
+    /*         SDL_TEXTUREACCESS_TARGET, // int access, */
+    /*         SCREEN_WIDTH, SCREEN_HEIGHT // int w, int h */
+    /*         ); */
+    /* assert(player); */
+
+    /* SDL_SetTextureBlendMode(player, SDL_BLENDMODE_BLEND); */
+
     // Check the texture format
     u32 format_check;
     int access_check;
@@ -656,6 +694,13 @@ int main(int argc, char **argv)
 
     u32 *bgnd_pixels = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
     assert(bgnd_pixels);
+
+    /* u32 *player_pixels = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32)); */
+    /* assert(player_pixels); */
+
+    // Alpha experimentation
+    u32 *layer_green_pixels = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
+    u32 *layer_red_pixels   = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
 
     bool done = false;
 
@@ -682,8 +727,8 @@ int main(int argc, char **argv)
     // RGBA is not available!
     /* u32 me_color = 0x22FF00FF; */
     // ARGB
-    /* u32 me_color = 0x8022FF00; */
-    u32 me_color = 0x80FFFFFF;
+    u32 me_color = 0xFF22FF00;
+    /* u32 me_color = 0x80FFFFFF; */
 
     // ----------------------------------
     // | Game graphics that do not move |
@@ -691,6 +736,26 @@ int main(int argc, char **argv)
 
     // Empty background
     rect_t empty_space = {0,0, SCREEN_WIDTH, SCREEN_HEIGHT};
+
+    // Alpha experimentation
+    // Put big green rect on left side
+    rect_t green_shape = {
+        (1.0/4.0)*SCREEN_WIDTH,  // x top-left
+        (1.0/4.0)*SCREEN_HEIGHT, // y top-left
+        (1.0/2.0)*SCREEN_WIDTH,  // width
+        (1.0/2.0)*SCREEN_HEIGHT, // height
+    };
+    // Offset smaller red rect to the right and down a bit
+    rect_t red_shape = {
+        (1.0/2.0)*SCREEN_WIDTH,  // x top-left
+        (1.0/3.0)*SCREEN_HEIGHT, // y top-left
+        (1.0/3.0)*SCREEN_WIDTH,  // width
+        (1.0/3.0)*SCREEN_HEIGHT, // height
+    };
+    // Both buffers start off empty because calloc sets all bytes
+    // to 0x00000000. I only need to add color in the rect.
+    FillRect(green_shape, 0xFF00FF00, layer_green_pixels);
+    FillRect(red_shape, 0xFFFF0000, layer_red_pixels);
 
     // ---------
     // | Noita |
@@ -792,8 +857,10 @@ int main(int argc, char **argv)
         // --------
         // | DRAW |
         // --------
-
-        FillRect(empty_space, NOTHING_COLOR, screen_pixels_next); // Clear the screen
+        // Clear the player
+        /* FillRect(empty_space, NOTHING_COLOR, player_pixels); */
+        // Clear the old particle position calculations
+        FillRect(empty_space, NOTHING_COLOR, screen_pixels_next);
         DrawBorder(screen_pixels_next);
         DrawParticles(screen_pixels_prev, screen_pixels_next);
 
@@ -884,8 +951,10 @@ int main(int argc, char **argv)
         }
 
         // Draw me in front of everything else
+        /* FillRect(me, OUT_OF_BOUNDS_COLOR, screen_pixels_next); */
+        /* FillRect(me, NOTHING_COLOR, screen_pixels_next); */
+        /* FillRect(me, me_color, player_pixels); */
         FillRect(me, me_color, screen_pixels_next);
-        /* FillRect(me, me_color, me_pixels); */
 
         /** BUFFER COPY
          *
@@ -900,6 +969,20 @@ int main(int argc, char **argv)
             screen_pixels_next = tmp;
         }
 
+        // Alpha experimentation
+        SDL_UpdateTexture(
+                layer_green, // SDL_Texture *
+                NULL, // NULL updates entire texture
+                layer_green_pixels, // const void *pixels
+                SCREEN_WIDTH * sizeof(u32) // int pitch
+                );
+        SDL_UpdateTexture(
+                layer_red, // SDL_Texture *
+                NULL, // NULL updates entire texture
+                layer_red_pixels, // const void *pixels
+                SCREEN_WIDTH * sizeof(u32) // int pitch
+                );
+
         SDL_UpdateTexture(
                 screen,        // SDL_Texture *
                 NULL,          // const SDL_Rect * - NULL updates entire texture
@@ -912,6 +995,12 @@ int main(int argc, char **argv)
                 bgnd_pixels, // const void *pixels
                 SCREEN_WIDTH * sizeof(u32) // int pitch - n bytes in a row of pixel data
                 );
+        /* SDL_UpdateTexture( */
+        /*         player,        // SDL_Texture * */
+        /*         NULL,          // const SDL_Rect * - NULL updates entire texture */
+        /*         player_pixels, // const void *pixels */
+        /*         SCREEN_WIDTH * sizeof(u32) // int pitch - n bytes in a row of pixel data */
+        /*         ); */
         SDL_RenderClear(renderer);
         SDL_RenderCopy(
                 renderer, // SDL_Renderer *
@@ -919,6 +1008,25 @@ int main(int argc, char **argv)
                 NULL, // const SDL_Rect * - SRC rect, NULL for entire TEXTURE
                 NULL  // const SDL_Rect * - DEST rect, NULL for entire RENDERING TARGET
                 );
+
+        // Alpha experimentation
+        SDL_RenderCopy(
+                renderer, // SDL_Renderer *
+                layer_green, // SDL_Texture *
+                NULL, NULL
+                );
+        SDL_RenderCopy(
+                renderer, // SDL_Renderer *
+                layer_red, // SDL_Texture *
+                NULL, NULL
+                );
+
+        /* SDL_RenderCopy( */
+        /*         renderer, // SDL_Renderer * */
+        /*         player,   // SDL_Texture * */
+        /*         NULL, // const SDL_Rect * - SRC rect, NULL for entire TEXTURE */
+        /*         NULL  // const SDL_Rect * - DEST rect, NULL for entire RENDERING TARGET */
+        /*         ); */
         SDL_RenderCopy(
                 renderer, // SDL_Renderer *
                 screen,   // SDL_Texture *

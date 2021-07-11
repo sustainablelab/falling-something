@@ -35,6 +35,7 @@
 typedef uint32_t u32;
 typedef uint8_t bool;
 typedef uint8_t u8;
+typedef int16_t i16;
 
 #define true 1
 #define false 0
@@ -173,6 +174,17 @@ internal void log_renderer_info(SDL_Renderer * renderer)
 #define SCALED_SCREEN_WIDTH  (PIXEL_SCALE*SCREEN_WIDTH)
 #define SCALED_SCREEN_HEIGHT (PIXEL_SCALE*SCREEN_HEIGHT)
 
+// ------------
+// | Momentum |
+// ------------
+
+typedef struct
+{
+    i16 dx; // vertical (think rows)
+    i16 dy; // horizontal (think cols)
+} momentum_t;
+
+
 /** Types of artwork
  *
  * Green cursor is a rect_t.
@@ -270,6 +282,19 @@ static const u32 colors[NTYPES] = {
  */
 
 /**
+ *  \brief Set momentum in PREV buffer.
+ *
+ *  \param x    Screen row number (0 is top)
+ *  \param y    Screen col number (0 is left)
+ *  \param momentum Momentum to set at this pixel
+ *  \param momentum_buffer Pointer to the momentum buffer to write to
+ */
+inline internal void MomentumSetUnsafe(int x, int y, momentum_t momentum, momentum_t * momentum_buffer)
+{
+    momentum_buffer[x*SCREEN_WIDTH+y] = momentum;
+}
+
+/**
  *  \brief Set pixel color in PREV buffer.
  *
  *  \param x    Screen row number (0 is top)
@@ -280,6 +305,29 @@ static const u32 colors[NTYPES] = {
 inline internal void ColorSetUnsafe(int x, int y, u32 color, u32 *screen_pixels)
 {
     screen_pixels[x*SCREEN_WIDTH+y] = color;
+}
+
+/**
+ *  \brief Get particle momentum
+ *
+ *  \param x    Screen row number (0 is top)
+ *  \param y    Screen col number (0 is left)
+ *  \param momentum Pointer to the momentum buffer
+ *
+ *  \return momentum_t {i16 dx, i16 dy}
+ */
+inline internal momentum_t MomentumAt(int x, int y, momentum_t *momentum)
+{
+    if ((x >= 0) && (y >= 0) && (x < SCREEN_HEIGHT) && (y < SCREEN_WIDTH))
+    {
+        return momentum[x*SCREEN_WIDTH+y];
+    }
+    else // Pixel is outside screen area
+    {
+        // Gotta return something. How about 0,0?
+        momentum_t out_of_bounds_momentum = {0,0};
+        return out_of_bounds_momentum;
+    }
 }
 
 /**
@@ -388,12 +436,20 @@ void internal DrawBorder(u32 * screen_pixels)
  *  \brief Draw particles in NEXT based on PREV
  *
  */
-internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
+internal void DrawParticles(
+        u32 *screen_pixels_prev, u32 *screen_pixels_next,
+        momentum_t *momentum_prev, momentum_t *momentum_next
+        )
 {
     for (int row=0; row < SCREEN_HEIGHT; row++)
     {
         for (int col=0; col < SCREEN_WIDTH; col++)
         {
+            /* int dy=0; // dy is 0, +1 or -1 */
+            /* int dx=0; // dx is 0, +1 or -1 */
+            momentum_t momentum = MomentumAt(row, col, momentum_prev);
+            /* momentum.dx = 0; */
+            momentum.dy = 0;
             u32 color             = ColorAt(row,   col,   screen_pixels_prev);
             u32 color_below       = ColorAt(row+1, col,   screen_pixels_prev);
             u32 color_below_right = ColorAt(row+1, col+1, screen_pixels_prev);
@@ -405,8 +461,6 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
             u32 color_below_next  = ColorAt(row+1, col,   screen_pixels_next);
             u32 color_right_next  = ColorAt(row,   col+1, screen_pixels_next);
             u32 color_left_next   = ColorAt(row,   col-1, screen_pixels_next);
-            int dy=0; // dy is 0, +1 or -1
-            int dx=0; // dx is 0, +1 or -1
             switch (color)
             {
 
@@ -414,8 +468,8 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                     // Fall down if nothing is below.
                     if (color_below == NOTHING_COLOR)
                     {
-                        dx = 1;
-                        dy = 0;
+                        momentum.dx = 1;
+                        momentum.dy = 0;
                     }
                     // Stop falling straight down if SAND or BRICK is below.
                     if (
@@ -429,9 +483,9 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                             && (color_below_left  == NOTHING_COLOR)
                            )
                         {
-                            dx = 1;
+                            momentum.dx = 1;
                             // Pick a random left (-1) or right (+1)
-                            dy = (rand()%2 == 1) ? 1 : -1;
+                            momentum.dy = (rand()%2 == 1) ? 1 : -1;
                         }
                         // If nothing on left only, fall to the left:
                         if (
@@ -439,8 +493,8 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                             && (color_below_left  == NOTHING_COLOR)
                            )
                         {
-                            dx = 1;
-                            dy = -1;
+                            momentum.dx = 1;
+                            momentum.dy = -1;
                         }
                         // If nothing on right only, fall to the right:
                         if (
@@ -448,8 +502,8 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                             && (color_below_left  != NOTHING_COLOR)
                             )
                         {
-                            dx = 1;
-                            dy = 1;
+                            momentum.dx = 1;
+                            momentum.dy = 1;
                         }
                         // If something on both sides, don't fall.
                         if (
@@ -457,11 +511,17 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                             && (color_below_left  != NOTHING_COLOR)
                            )
                         {
-                            dx = 0;
-                            dy = 0;
+                            momentum.dx = 0;
+                            momentum.dy = 0;
                         }
                     }
-                    ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
+                    // Temporary fix: stop falling no matter what is below.
+                    else if (color_below != NOTHING_COLOR)
+                    {
+                        momentum.dx=0;
+                    }
+                    ColorSetUnsafe(row+momentum.dx, col+momentum.dy, color, screen_pixels_next);
+                    MomentumSetUnsafe(row+momentum.dx, col+momentum.dy, momentum, momentum_next);
                     break;
 
                 case SLIME_COLOR:
@@ -472,12 +532,14 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                          && (color_below_next == NOTHING_COLOR)
                        )
                     {
-                        dx = 1;
+                        momentum.dx = 1;
                         /* dy = 0; */
                     }
                     // Stop falling if ANYTHING is below.
                     else
                     {
+                        momentum.dx = 0;
+
                         // Make SLIME sticky!
                         // Give SLIME a 1 out of 47 chance of moving.
                         bool is_moving = (rand()%47 == 1) ? true : false;
@@ -494,7 +556,7 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                                  && (color_left_next  == NOTHING_COLOR)
                                )
                             {
-                                dy = (rand()%2 == 1) ? 1 : -1;
+                                momentum.dy = (rand()%2 == 1) ? 1 : -1;
                             }
                             // If nothing on left only, flow left:
                             else if (
@@ -503,7 +565,7 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                                 && (color_left_next  == NOTHING_COLOR)
                                )
                             {
-                                dy = -1;
+                                momentum.dy = -1;
                             }
                             // If nothing on right only, flow right:
                             else if (
@@ -512,11 +574,12 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                                 && (color_left       != NOTHING_COLOR)
                                )
                             {
-                                dy = 1;
+                                momentum.dy = 1;
                             }
                         }
                     }
-                    ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
+                    ColorSetUnsafe(row+momentum.dx, col+momentum.dy, color, screen_pixels_next);
+                    MomentumSetUnsafe(row+momentum.dx, col+momentum.dy, momentum, momentum_next);
                     break;
 
                 case WATER_COLOR:
@@ -527,22 +590,40 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                          && (color_below_next == NOTHING_COLOR)
                        )
                     {
-                        dx = 1;
+                        momentum.dx = 1;
                         /* dy = 0; */
                     }
                     // Stop falling if ANYTHING is below.
                     else
                     {
-                        /* dx = 0; */
-                        // If nothing on either side, pick a side at RANDOM:
+                        momentum.dx = 0;
+                        // If the water has sideways momentum, it
+                        // should keep moving that way, even
+                        // through other water.
+                        if (momentum.dy != 0)
+                        {
+                            // Bump up the water in your path
+                            if (
+                                    (color_right      == WATER_COLOR)
+                                 && (color_right_next == WATER_COLOR)
+                                 && (color_left       == WATER_COLOR)
+                                 && (color_left_next  == WATER_COLOR)
+                               )
+                            {
+                                momentum_t bumped = {1, 0}; // bump up
+                                MomentumSetUnsafe(row, col+momentum.dy, bumped, momentum_next);
+                            }
+                        }
+                        // If dy==0 and nothing on either side, pick a side at RANDOM:
                         if (
-                                (color_right      == NOTHING_COLOR)
+                                (momentum.dy == 0)
+                             && (color_right      == NOTHING_COLOR)
                              && (color_right_next == NOTHING_COLOR)
                              && (color_left       == NOTHING_COLOR)
                              && (color_left_next  == NOTHING_COLOR)
                            )
                         {
-                            dy = (rand()%2 == 1) ? 1 : -1;
+                            momentum.dy = (rand()%2 == 1) ? 1 : -1;
                         }
                         // If nothing on left only, flow left:
                         else if (
@@ -551,7 +632,7 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                             && (color_left_next  == NOTHING_COLOR)
                            )
                         {
-                            dy = -1;
+                            momentum.dy = -1;
                         }
                         // If nothing on right only, flow right:
                         else if (
@@ -560,10 +641,17 @@ internal void DrawParticles( u32 *screen_pixels_prev, u32 *screen_pixels_next)
                             && (color_left       != NOTHING_COLOR)
                            )
                         {
-                            dy = 1;
+                            momentum.dy = 1;
                         }
+                        // Keep flowing in the same direction
+                        else
+                        {
+                            ; // momentum.dy stays the same
+                        }
+                        //
                     }
-                    ColorSetUnsafe(row+dx, col+dy, color, screen_pixels_next);
+                    ColorSetUnsafe(row+momentum.dx, col+momentum.dy, color, screen_pixels_next);
+                    MomentumSetUnsafe(row+momentum.dx, col+momentum.dy, momentum, momentum_next);
                     break;
                 case BRICK_COLOR:
                     break;
@@ -584,6 +672,17 @@ int main(int argc, char **argv)
     // ---------------
     // | Game window |
     // ---------------
+    log_to_file("How big is a u32? ");
+    sprintf(log_msg, "%d bytes\n", sizeof(u32));
+    log_to_file(log_msg);
+    log_to_file("How big is a i16? ");
+    sprintf(log_msg, "%d bytes\n", sizeof(i16));
+    log_to_file(log_msg);
+    log_to_file("How big is a momentum_t? ");
+    momentum_t mom_test = {-1, 1};
+    sprintf(log_msg, "%d bytes\n", sizeof(mom_test));
+    log_to_file(log_msg);
+
     log_to_file("Number of particles should not exceed number of pixels\n");
     sprintf(log_msg, "%d <= %d? ", NP, (SCREEN_WIDTH * SCREEN_HEIGHT));
     log_to_file(log_msg);
@@ -698,6 +797,9 @@ int main(int argc, char **argv)
 
     u32 *screen_pixels_next = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
     assert(screen_pixels_next);
+
+    momentum_t *momentum_prev = (momentum_t*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(momentum_t));
+    momentum_t *momentum_next = (momentum_t*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(momentum_t));
 
     u32 *bgnd_pixels = (u32*) calloc(SCREEN_WIDTH * SCREEN_HEIGHT, sizeof(u32));
     assert(bgnd_pixels);
@@ -915,7 +1017,7 @@ int main(int argc, char **argv)
         // Clear the old particle position calculations
         FillRect(empty_space, NOTHING_COLOR, screen_pixels_next);
         DrawBorder(screen_pixels_next);
-        DrawParticles(screen_pixels_prev, screen_pixels_next);
+        DrawParticles(screen_pixels_prev, screen_pixels_next, momentum_prev, momentum_next);
 
         // ---Draw me---
         //
@@ -1017,9 +1119,13 @@ int main(int argc, char **argv)
          *  (PREV screen buffer is rendered in SDL_UpdateTexture).
          */
         {
-            u32 *tmp = screen_pixels_prev;
+            u32 *tmp_pix = screen_pixels_prev;
             screen_pixels_prev = screen_pixels_next;
-            screen_pixels_next = tmp;
+            screen_pixels_next = tmp_pix;
+            //
+            momentum_t *tmp_mom = momentum_prev;
+            momentum_prev = momentum_next;
+            momentum_next = tmp_mom;
         }
 
         // Alpha experimentation

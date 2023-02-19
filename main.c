@@ -69,10 +69,10 @@ internal void clear_log_file(void)
     fclose(f);
 }
 
-internal void log_to_file(char * log_msg)
+internal void log_to_file(const char * log_msg)
 {
     f = fopen("log.txt", "a");
-    fprintf(f, log_msg);
+    fprintf(f, "%s", log_msg);
     fclose(f);
 }
 
@@ -128,7 +128,7 @@ internal void log_renderer_info(SDL_Renderer * renderer)
     for (int i=0; i < info.num_texture_formats; i++)
     {
         u32 format = info.texture_formats[i];
-        sprintf(log_msg, "\t\tName: %s, u32 value: %lu\n", SDL_GetPixelFormatName(format), format);
+        sprintf(log_msg, "\t\tName: %s, u32 value: %d\n", SDL_GetPixelFormatName(format), format);
         log_to_file(log_msg);
         int bpp; // bits per pixel
         u32 Rmask;
@@ -154,9 +154,9 @@ internal void log_renderer_info(SDL_Renderer * renderer)
             log_to_file("\t\t\tFAIL: Cannot convert PixelFormatEnum to Masks.\n");
         }
     }
-    sprintf(log_msg, "\tMax texture width: %lu\n", info.max_texture_width);
+    sprintf(log_msg, "\tMax texture width: %d\n", info.max_texture_width);
     log_to_file(log_msg);
-    sprintf(log_msg, "\tMax texture height: %lu\n", info.max_texture_height);
+    sprintf(log_msg, "\tMax texture height: %d\n", info.max_texture_height);
     log_to_file(log_msg);
 }
 
@@ -673,14 +673,14 @@ int main(int argc, char **argv)
     // | Game window |
     // ---------------
     log_to_file("How big is a u32? ");
-    sprintf(log_msg, "%d bytes\n", sizeof(u32));
+    sprintf(log_msg, "%d bytes\n", (int)sizeof(u32));
     log_to_file(log_msg);
     log_to_file("How big is a i16? ");
-    sprintf(log_msg, "%d bytes\n", sizeof(i16));
+    sprintf(log_msg, "%d bytes\n", (int)sizeof(i16));
     log_to_file(log_msg);
     log_to_file("How big is a momentum_t? ");
     momentum_t mom_test = {-1, 1};
-    sprintf(log_msg, "%d bytes\n", sizeof(mom_test));
+    sprintf(log_msg, "%d bytes\n", (int)sizeof(mom_test));
     log_to_file(log_msg);
 
     log_to_file("Number of particles should not exceed number of pixels\n");
